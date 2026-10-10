@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://clash.md/brand/clash-app-icon.png" width="128" height="128" alt="Clash">
+</p>
+
 # Clash Adapter
 
 [English](README.md) · 简体中文

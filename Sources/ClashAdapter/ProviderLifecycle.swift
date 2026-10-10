@@ -65,7 +65,7 @@ enum ProviderTeardownPolicy {
  
  
  
-func hakoStopReasonSummary(_ reason: NEProviderStopReason) -> String {
+func clashStopReasonSummary(_ reason: NEProviderStopReason) -> String {
     let meaning: String
     switch reason {
     case .none: meaning = "none"
