@@ -24,14 +24,30 @@ For the complete application, see [Clash-Client](https://github.com/ProjectClash
 
 These components use Apple system frameworks. They do not include a proxy engine, an application interface or a complete `NEPacketTunnelProvider` implementation.
 
+## Versions and dependencies
+
+The Swift package and target are named `ClashAdapter`. [`Package.swift`](Package.swift) declares no external package dependencies; the components use Apple system frameworks and do not download or link a Kernel SDK themselves. The consuming application supplies the kernel integration.
+
+Adapter is published by source commit, with no release tag at present. It does not share the kernel's `1.19.32` version number. The Client's [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) records the tested Kernel and Adapter revisions together.
+
 ## Requirements
 
 - macOS with Xcode and the SDK for your target platform.
-- Swift 5.9 or later.
+- Swift tools version 5.9, as declared by the package manifest. Current verification uses Xcode 27.0.
 - Deployment targets: iOS 15+, macOS 13+ or tvOS 17+.
 - A Packet Tunnel extension with its required capabilities and signing configured by your application.
 
 ## Integrate the sources
+
+For a standalone macOS package build:
+
+```sh
+git clone https://github.com/ProjectClash/Clash-Adapter.git
+cd Clash-Adapter
+swift build -c release
+```
+
+This checks the package on the host Mac; it does not build a Packet Tunnel app or validate device operation. For a reproducible integration, select the Adapter revision pinned by your application before building.
 
 The current types have Swift `internal` access. Compile the source files in your consuming target; importing the package from another module does not expose these types as a public API.
 
@@ -39,7 +55,7 @@ The current types have Swift `internal` access. Compile the source files in your
 2. Add the files under `Sources/ClashAdapter` to your Packet Tunnel extension target, keeping the accompanying license.
 3. Supply your kernel connection and coordinate startup, network settings, packet handling and shutdown in your provider.
 
-The application source and its dependency setup are being prepared in [Clash-Client](https://github.com/ProjectClash/Clash-Client).
+The application source and dependency setup are available in [Clash-Client](https://github.com/ProjectClash/Clash-Client). Its bootstrap copies the pinned Adapter sources into the consuming targets.
 
 `PacketFlowBridge.start()` returns the core-facing descriptor of a socket pair. The descriptor carries packets with a four-byte address-family prefix; it is not Apple's private utun descriptor. Keep the bridge alive for the tunnel session and call `stop()` during teardown. See the source for descriptor ownership and error handling.
 
@@ -47,7 +63,7 @@ The application source and its dependency setup are being prepared in [Clash-Cli
 
 ## Status and feedback
 
-This is pre-release integration code. Pin a revision and validate the lifecycle and packet flow in your own application. The repository's package declaration describes its build structure; it does not promise a stable external Swift API.
+Pin a revision and validate the lifecycle and packet flow in your own application. The repository's package declaration describes its build structure; it does not promise a stable external Swift API.
 
 Report component problems in [Issues](https://github.com/ProjectClash/Clash-Adapter/issues), including the revision, target platform and a minimal reproduction. App issues belong in [Clash-Client](https://github.com/ProjectClash/Clash-Client/issues); kernel issues belong in [Clash](https://github.com/ProjectClash/Clash/issues). Remove credentials and subscription links from public reports. Follow [SECURITY.md](SECURITY.md) for security reports.
 

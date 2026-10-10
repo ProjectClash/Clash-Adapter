@@ -24,14 +24,30 @@
 
 这些组件使用 Apple 系统框架，不包含代理引擎、应用界面或完整的 `NEPacketTunnelProvider` 实现。
 
+## 版本与依赖
+
+Swift 包和构建目标均名为 `ClashAdapter`。[`Package.swift`](Package.swift) 未声明外部包依赖；组件使用 Apple 系统框架，不会自行下载或链接内核 SDK。内核接入由使用这些组件的应用负责。
+
+Adapter 目前按源码提交发布，尚无发行标签，不沿用内核的 `1.19.32` 版本号。客户端的 [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) 同时记录已验证的 Kernel 和 Adapter 提交。
+
 ## 环境要求
 
 - macOS、Xcode 及目标平台 SDK。
-- Swift 5.9 或更新版本。
+- 包清单声明 Swift 工具版本为 5.9；当前验证使用 Xcode 27.0。
 - 部署目标为 iOS 15+、macOS 13+ 或 tvOS 17+。
 - 由应用自行配置所需能力与签名的 Packet Tunnel 扩展。
 
 ## 集成源码
+
+单独在 macOS 上构建此包：
+
+```sh
+git clone https://github.com/ProjectClash/Clash-Adapter.git
+cd Clash-Adapter
+swift build -c release
+```
+
+这只检查包在当前 Mac 上的编译，不会生成 Packet Tunnel 应用，也不代表已验证真机运行。需要可复现的集成时，请在构建前切到应用所固定的 Adapter 提交。
 
 当前类型使用 Swift 的 `internal` 访问级别，需要与调用方一起编译进同一个构建目标。仅从另一个模块导入该包，无法将这些类型作为公开 API 使用。
 
@@ -39,7 +55,7 @@
 2. 将 `Sources/ClashAdapter` 下的文件加入 Packet Tunnel 扩展构建目标，并保留随附许可证。
 3. 在自己的扩展中接入内核，协调启动、网络设置、数据包处理和停止流程。
 
-应用源码及依赖准备流程正在 [Clash-Client](https://github.com/ProjectClash/Clash-Client) 整理发布。
+应用源码及依赖准备流程已在 [Clash-Client](https://github.com/ProjectClash/Clash-Client) 公开；其依赖准备脚本会把固定提交的 Adapter 源码复制到使用它们的构建目标。
 
 `PacketFlowBridge.start()` 返回套接字对中面向内核的文件描述符，数据包带四字节地址族前缀；它不是 Apple 私有的 utun 描述符。隧道会话期间应持有桥接对象，并在清理时调用 `stop()`。描述符所有权与错误处理以源码为准。
 
@@ -47,7 +63,7 @@
 
 ## 状态与反馈
 
-当前为预发布集成代码。请固定具体提交，并在自己的应用中验证生命周期和数据包收发。仓库的包声明用于描述构建结构，不代表已经提供稳定的外部 Swift API。
+请固定具体提交，并在自己的应用中验证生命周期和数据包收发。仓库的包声明用于描述构建结构，不代表已经提供稳定的外部 Swift API。
 
 组件问题请提交到本仓库的 [Issues](https://github.com/ProjectClash/Clash-Adapter/issues)，附上提交、目标平台和最小复现。应用问题请提交到 [Clash-Client](https://github.com/ProjectClash/Clash-Client/issues)，内核问题请提交到 [Clash](https://github.com/ProjectClash/Clash/issues)。公开反馈中请移除凭据和订阅链接。安全问题请遵循 [SECURITY.md](SECURITY.md)。
 
