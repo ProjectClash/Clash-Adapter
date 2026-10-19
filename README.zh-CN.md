@@ -57,7 +57,7 @@ swift build -c release
 
 应用源码及依赖准备流程已在 [Clash-Client](https://github.com/ProjectClash/Clash-Client) 公开；其依赖准备脚本会把固定提交的 Adapter 源码复制到使用它们的构建目标。
 
-`PacketFlowBridge.start()` 返回套接字对中面向内核的文件描述符，数据包带四字节地址族前缀；它不是 Apple 私有的 utun 描述符。隧道会话期间应持有桥接对象，并在清理时调用 `stop()`。描述符所有权与错误处理以源码为准。
+`PacketFlowBridge.start()` 返回套接字对中面向内核的文件描述符，数据包带四字节地址族前缀；它不是 Apple 私有的 utun 描述符。隧道会话期间应持有桥接对象，并在清理时调用 `stop()`。描述符所有权与错误处理以源码为准。 可通过可选的 `logLine` 回调接收数据包桥接故障诊断。
 
 `ApplePhysicalPathMonitor` 提供当前物理接口与接口清单，可通过可选的 `logHandler` 接收路径诊断。使用 Clash SDK 的接口迭代器和应用日志接线位于 Client 仓库。
 

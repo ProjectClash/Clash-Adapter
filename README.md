@@ -57,7 +57,7 @@ The current types have Swift `internal` access. Compile the source files in your
 
 The application source and dependency setup are available in [Clash-Client](https://github.com/ProjectClash/Clash-Client). Its bootstrap copies the pinned Adapter sources into the consuming targets.
 
-`PacketFlowBridge.start()` returns the core-facing descriptor of a socket pair. The descriptor carries packets with a four-byte address-family prefix; it is not Apple's private utun descriptor. Keep the bridge alive for the tunnel session and call `stop()` during teardown. See the source for descriptor ownership and error handling.
+`PacketFlowBridge.start()` returns the core-facing descriptor of a socket pair. The descriptor carries packets with a four-byte address-family prefix; it is not Apple's private utun descriptor. Keep the bridge alive for the tunnel session and call `stop()` during teardown. See the source for descriptor ownership and error handling. Supply the optional `logLine` callback to receive packet-flow fault diagnostics.
 
 `ApplePhysicalPathMonitor` exposes the current physical interface and interface inventory. Supply its optional `logHandler` to receive path diagnostics. The Clash SDK interface iterator and application logging integration live in the Client repository.
 
