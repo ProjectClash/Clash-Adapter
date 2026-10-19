@@ -537,9 +537,38 @@ struct PhysicalPathSnapshot: Equatable, Sendable {
      
      
     var availableInterfaces: [PhysicalInterfaceInventory.PathInterface] = []
+     
+    var gateways: [String] = []
 
     var isReady: Bool {
         satisfied && interfaceIndex != 0 && !interfaceName.isEmpty
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+struct NetworkIdentity: Equatable, Sendable {
+    let kind: String
+    let routers: String
+
+    init(_ snapshot: PhysicalPathSnapshot) {
+        guard snapshot.isReady else {
+            kind = ""
+            routers = ""
+            return
+        }
+        switch snapshot.interfaceType {
+        case "wifi": kind = "WIFI"
+        case "cellular": kind = "CELLULAR"
+        case "wiredEthernet": kind = "WIRED"
+        default: kind = ""
+        }
+        routers = snapshot.gateways.joined(separator: ",")
     }
 }
 
@@ -618,7 +647,8 @@ final class ApplePhysicalPathMonitor: PhysicalPathMonitoring {
                     PhysicalInterfaceInventory.PathInterface(
                         name: $0.name, index: UInt32(clamping: $0.index), type: .init($0.type)
                     )
-                }
+                },
+                gateways: path.gateways.compactMap(Self.gatewayAddress)
             )
             logHandler?(
                 "path facts: status=\(Self.statusName(path))"
@@ -658,6 +688,16 @@ final class ApplePhysicalPathMonitor: PhysicalPathMonitoring {
         case .localNetworkDenied: return "localNetworkDenied"
         case .vpnInactive: return "vpnInactive"
         @unknown default: return "unknown"
+        }
+    }
+
+     
+    static func gatewayAddress(_ endpoint: Network.NWEndpoint) -> String? {
+        guard case .hostPort(let host, _) = endpoint else { return nil }
+        switch host {
+        case .ipv4(let address): return "\(address)"
+        case .ipv6(let address): return "\(address)".split(separator: "%").first.map(String.init)
+        default: return nil
         }
     }
 

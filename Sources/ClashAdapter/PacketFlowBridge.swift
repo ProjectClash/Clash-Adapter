@@ -30,6 +30,86 @@ enum PacketFlowBridgeError: LocalizedError {
     }
 }
 
+ 
+enum PacketFlowFaultDisposition: Equatable {
+     
+    case transient
+     
+     
+    case peerGone
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+struct PacketFlowFaultWindow: Equatable {
+    static let defaultLimitNanoseconds: UInt64 = 10_000_000_000
+    static let defaultMinimumFaults: UInt64 = 5
+
+    let limitNanoseconds: UInt64
+    let minimumFaults: UInt64
+    private(set) var streakStartedAt: UInt64?
+    private(set) var lastFaultAt: UInt64?
+    private(set) var faultsInStreak: UInt64 = 0
+
+    init(
+        limitNanoseconds: UInt64 = PacketFlowFaultWindow.defaultLimitNanoseconds,
+        minimumFaults: UInt64 = PacketFlowFaultWindow.defaultMinimumFaults
+    ) {
+        self.limitNanoseconds = limitNanoseconds
+        self.minimumFaults = max(1, minimumFaults)
+    }
+
+     
+     
+    var limitDescription: String {
+        limitNanoseconds % 1_000_000_000 == 0
+            ? "\(limitNanoseconds / 1_000_000_000) s"
+            : "\(limitNanoseconds / 1_000_000) ms"
+    }
+
+    mutating func recordSuccess() {
+        guard streakStartedAt != nil else { return }
+        streakStartedAt = nil
+        lastFaultAt = nil
+        faultsInStreak = 0
+    }
+
+     
+     
+     
+     
+    mutating func recordFault(at now: UInt64) -> Bool {
+        if let last = lastFaultAt, now > last, now - last > limitNanoseconds {
+            streakStartedAt = nil
+            faultsInStreak = 0
+        }
+        let start = streakStartedAt ?? now
+        streakStartedAt = start
+        lastFaultAt = now
+        faultsInStreak &+= 1
+        return faultsInStreak >= minimumFaults && now >= start && now - start >= limitNanoseconds
+    }
+}
+
 struct PacketFlowBridgeSnapshot: Equatable {
      
      
@@ -55,6 +135,10 @@ struct PacketFlowBridgeSnapshot: Equatable {
     let packetsToSystem: UInt64
     let droppedToCore: UInt64
     let droppedToSystem: UInt64
+     
+    let packetWriteRejectedCount: UInt64
+     
+    let transientFaultCount: UInt64
     let pendingPackets: Int
     let pendingBytes: Int
     let peakPendingPackets: Int
@@ -198,6 +282,10 @@ final class PacketFlowBridge: @unchecked Sendable {
     private let scheduleFlushRetry: @Sendable (DispatchQueue, UInt64, @escaping @Sendable () -> Void) -> Void
     private let configuration: PacketFlowBridgeConfiguration
     private let onFailure: (Error) -> Void
+     
+     
+     
+    private let logLine: (String) -> Void
     private let log = Logger(subsystem: "app.clash.adapter", category: "packetflow")
 
     private var flowFileDescriptor: Int32 = -1
@@ -224,6 +312,11 @@ final class PacketFlowBridge: @unchecked Sendable {
     private var flushBackoffScheduled = false
     private var consecutiveDrainPressure = 0
     private var consecutiveFlushPressure = 0
+     
+     
+    private let faultWindow: PacketFlowFaultWindow
+    private var uplinkFaults: PacketFlowFaultWindow
+    private var downlinkFaults: PacketFlowFaultWindow
      
      
      
@@ -258,6 +351,8 @@ final class PacketFlowBridge: @unchecked Sendable {
     private var packetsToSystem: UInt64 = 0
     private var droppedToCore: UInt64 = 0
     private var droppedToSystem: UInt64 = 0
+    private var packetWriteRejectedCount: UInt64 = 0
+    private var transientFaultCount: UInt64 = 0
     private var queueLatencySamples: UInt64 = 0
     private var totalQueueLatencyNanoseconds: UInt64 = 0
     private var maxQueueLatencyNanoseconds: UInt64 = 0
@@ -283,8 +378,13 @@ final class PacketFlowBridge: @unchecked Sendable {
         scheduleFlushRetry: @escaping @Sendable (DispatchQueue, UInt64, @escaping @Sendable () -> Void) -> Void = { queue, delay, retry in
             queue.asyncAfter(deadline: .now() + .nanoseconds(Int(delay)), execute: retry)
         },
+        faultWindow: PacketFlowFaultWindow = PacketFlowFaultWindow(),
+        logLine: @escaping (String) -> Void = { _ in },
         onFailure: @escaping (Error) -> Void
     ) {
+        self.faultWindow = faultWindow
+        self.uplinkFaults = faultWindow
+        self.downlinkFaults = faultWindow
         self.packetFlow = packetFlow
         self.maxPendingPackets = max(1, maxPendingPackets)
         self.maxPendingBytes = max(4_096, maxPendingBytes)
@@ -293,6 +393,7 @@ final class PacketFlowBridge: @unchecked Sendable {
         self.sendToFlow = sendToFlow
         self.recvFromFlow = recvFromFlow
         self.scheduleFlushRetry = scheduleFlushRetry
+        self.logLine = logLine
         self.onFailure = onFailure
         queue.setSpecific(key: queueKey, value: 1)
     }
@@ -364,6 +465,8 @@ final class PacketFlowBridge: @unchecked Sendable {
                 packetsToSystem: packetsToSystem,
                 droppedToCore: droppedToCore,
                 droppedToSystem: droppedToSystem,
+                packetWriteRejectedCount: packetWriteRejectedCount,
+                transientFaultCount: transientFaultCount,
                 pendingPackets: pendingToCore.count - pendingHead,
                 pendingBytes: pendingBytes,
                 peakPendingPackets: peakPendingPackets,
@@ -484,7 +587,12 @@ final class PacketFlowBridge: @unchecked Sendable {
                     self.bytesFromSystem &+= UInt64(packet.count)
                 }
                 guard packets.count == protocols.count else {
-                    self.fail(PacketFlowBridgeError.malformedBatch)
+                     
+                    self.droppedToCore &+= UInt64(packets.count)
+                    guard self.noteTransientFault(
+                        .malformedBatch, direction: .toCore, dropped: packets.count
+                    ) else { return }
+                    self.scheduleFlowRead()
                     return
                 }
                 for (packet, proto) in zip(packets, protocols) {
@@ -512,6 +620,9 @@ final class PacketFlowBridge: @unchecked Sendable {
          
          
         guard running, !flushBackoffScheduled else { return }
+         
+         
+        var sentAny = false
         while pendingHead < pendingToCore.count {
             let pending = pendingToCore[pendingHead]
             let (sent, sendErrno) = pending.frame.withUnsafeBytes { bytes in
@@ -524,6 +635,8 @@ final class PacketFlowBridge: @unchecked Sendable {
                 packetsToCore &+= 1
                 bytesToCore &+= UInt64(pending.frame.count - Self.headerSize)
                 recordQueueLatency(since: pending.enqueuedAt)
+                uplinkFaults.recordSuccess()
+                sentAny = true
                 continue
             }
             if sent < 0, sendErrno == EINTR {
@@ -551,13 +664,29 @@ final class PacketFlowBridge: @unchecked Sendable {
                 scheduleFlushBackoff()
                 return
             }
-            fail(PacketFlowBridgeError.systemCall("send", sendErrno))
+            let error = PacketFlowBridgeError.systemCall("send", sendErrno)
+            if Self.faultDisposition(forErrno: sendErrno) == .peerGone {
+                fail(error, reason: Self.peerGoneReason)
+                return
+            }
+             
+             
+             
+             
+            pendingBytes -= pending.frame.count
+            pendingHead += 1
+            droppedToCore &+= 1
+            compactPendingQueueIfNeeded()
+            guard noteTransientFault(error, direction: .toCore, dropped: 1) else { return }
+            scheduleFlushBackoff()
             return
         }
         pendingToCore.removeAll(keepingCapacity: true)
         pendingHead = 0
         pendingBytes = 0
-        consecutiveFlushPressure = 0
+        if sentAny {
+            consecutiveFlushPressure = 0
+        }
         suspendWriteSourceIfNeeded()
     }
 
@@ -642,8 +771,17 @@ final class PacketFlowBridge: @unchecked Sendable {
                 break
             }
             if received < 0 {
-                fail(PacketFlowBridgeError.systemCall("recv", recvErrno))
-                return false
+                let error = PacketFlowBridgeError.systemCall("recv", recvErrno)
+                if Self.faultDisposition(forErrno: recvErrno) == .peerGone {
+                    fail(error, reason: Self.peerGoneReason)
+                    return false
+                }
+                 
+                 
+                 
+                guard noteTransientFault(error, direction: .toSystem, dropped: 0) else { return false }
+                resourcePressure = true
+                break
             }
             guard received >= Self.headerSize else {
                 droppedToSystem += 1
@@ -671,10 +809,18 @@ final class PacketFlowBridge: @unchecked Sendable {
 
         if !packets.isEmpty {
             guard packetFlow.writePackets(packets, withProtocols: protocols) else {
+                 
+                 
+                 
                 droppedToSystem += UInt64(packets.count)
-                fail(PacketFlowBridgeError.packetWriteRejected)
+                packetWriteRejectedCount &+= 1
+                guard noteTransientFault(
+                    .packetWriteRejected, direction: .toSystem, dropped: packets.count
+                ) else { return false }
+                scheduleDrainBackoff()
                 return false
             }
+            downlinkFaults.recordSuccess()
             packetsToSystem += UInt64(packets.count)
             systemWriteCalls &+= 1
             maxSystemWriteBatch = max(maxSystemWriteBatch, packets.count)
@@ -764,12 +910,70 @@ final class PacketFlowBridge: @unchecked Sendable {
         }
     }
 
-    private func fail(_ error: Error) {
+    private enum Direction: String {
+        case toCore = "to the core"
+        case toSystem = "to the system"
+    }
+
+    static let peerGoneReason = "the core's end of the socket is closed"
+
+     
+     
+     
+    private func noteTransientFault(_ error: PacketFlowBridgeError, direction: Direction, dropped: Int) -> Bool {
+        transientFaultCount &+= 1
+        let now = monotonicNanoseconds()
+        let sustained: Bool
+        let streak: UInt64
+        switch direction {
+        case .toCore:
+            sustained = uplinkFaults.recordFault(at: now)
+            streak = uplinkFaults.faultsInStreak
+        case .toSystem:
+            sustained = downlinkFaults.recordFault(at: now)
+            streak = downlinkFaults.faultsInStreak
+        }
+        if sustained {
+            fail(error, reason: "no packet got through \(direction.rawValue) for \(faultWindow.limitDescription) (\(streak) faults in a row)")
+            return false
+        }
+        if Self.logsTransientFault(occurrence: transientFaultCount) {
+            logLine(
+                "PacketFlow bridge: \(error.localizedDescription); dropped \(dropped) packet(s) going "
+                    + "\(direction.rawValue), the tunnel stays up (fault \(transientFaultCount))"
+            )
+        }
+        return true
+    }
+
+    private func fail(_ error: Error, reason: String) {
         guard !didFail else { return }
         didFail = true
         log.error("PacketFlow bridge failed: \(error.localizedDescription, privacy: .private)")
+        logLine("PacketFlow bridge failed: \(error.localizedDescription); \(reason)")
         teardown()
         onFailure(error)
+    }
+
+     
+     
+     
+    static func faultDisposition(forErrno code: Int32) -> PacketFlowFaultDisposition {
+        switch code {
+        case EPIPE, ECONNRESET, ENOTCONN, EBADF, ECONNREFUSED, ENOTSOCK, ESHUTDOWN:
+            return .peerGone
+        default:
+            return .transient
+        }
+    }
+
+     
+     
+    static func logsTransientFault(occurrence: UInt64) -> Bool {
+        guard occurrence > 0 else { return false }
+        var remaining = occurrence
+        while remaining % 10 == 0 { remaining /= 10 }
+        return remaining == 1
     }
 
     private func teardown() {
@@ -780,6 +984,8 @@ final class PacketFlowBridge: @unchecked Sendable {
         flushBackoffScheduled = false
         consecutiveDrainPressure = 0
         consecutiveFlushPressure = 0
+        uplinkFaults = faultWindow
+        downlinkFaults = faultWindow
         flowReadOutstanding = false
         pendingToCore.removeAll(keepingCapacity: false)
         pendingHead = 0
