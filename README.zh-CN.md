@@ -28,7 +28,7 @@
 
 Swift 包和构建目标均名为 `ClashAdapter`。[`Package.swift`](Package.swift) 未声明外部包依赖；组件使用 Apple 系统框架，不会自行下载或链接内核 SDK。内核接入由使用这些组件的应用负责。
 
-Adapter 目前按源码提交发布，尚无发行标签，不沿用内核的 `1.19.32` 版本号。客户端的 [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) 同时记录已验证的 Kernel 和 Adapter 提交。
+Adapter 目前按源码提交发布，尚无发行标签，不沿用内核的 `1.19.33` 版本号。客户端的 [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) 同时记录已验证的 Kernel 和 Adapter 提交。
 
 ## 环境要求
 

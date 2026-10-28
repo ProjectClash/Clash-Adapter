@@ -28,7 +28,7 @@ These components use Apple system frameworks. They do not include a proxy engine
 
 The Swift package and target are named `ClashAdapter`. [`Package.swift`](Package.swift) declares no external package dependencies; the components use Apple system frameworks and do not download or link a Kernel SDK themselves. The consuming application supplies the kernel integration.
 
-Adapter is published by source commit, with no release tag at present. It does not share the kernel's `1.19.32` version number. The Client's [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) records the tested Kernel and Adapter revisions together.
+Adapter is published by source commit, with no release tag at present. It does not share the kernel's `1.19.33` version number. The Client's [`Dependencies.lock.json`](https://github.com/ProjectClash/Clash-Client/blob/main/Dependencies.lock.json) records the tested Kernel and Adapter revisions together.
 
 ## Requirements
 
