@@ -10,6 +10,50 @@ protocol PacketFlowIO: AnyObject {
 
 extension NEPacketTunnelFlow: PacketFlowIO {}
 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+final class SharedPacketFlowReads: PacketFlowIO, @unchecked Sendable {
+    typealias Completion = @Sendable ([Data], [NSNumber]) -> Void
+    private let flow: PacketFlowIO
+    private let lock = NSLock()
+    private var systemReadPending = false
+    private var reader: Completion?
+
+    init(_ flow: PacketFlowIO) { self.flow = flow }
+
+    func readPackets(completionHandler: @escaping Completion) {
+        lock.lock()
+        reader = completionHandler
+        let ask = !systemReadPending
+        systemReadPending = true
+        lock.unlock()
+        guard ask else { return }
+        flow.readPackets { [self] packets, protocols in
+            lock.lock()
+            let taker = reader
+            reader = nil
+            systemReadPending = false
+            lock.unlock()
+             
+             
+            taker?(packets, protocols)
+        }
+    }
+    func writePackets(_ packets: [Data], withProtocols protocols: [NSNumber]) -> Bool {
+        flow.writePackets(packets, withProtocols: protocols)
+    }
+}
+
 enum PacketFlowBridgeError: LocalizedError {
     case systemCall(String, Int32)
     case malformedBatch
